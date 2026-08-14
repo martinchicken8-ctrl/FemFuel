@@ -5,7 +5,10 @@
 //
 // Get a free API key (no credit card required) at: https://aistudio.google.com/apikey
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+// Google renames/retires its free "Flash" model every few months. Instead of relying on
+// a single hardcoded name, we try a short list in order and use whichever one responds
+// successfully - this survives Google quietly retiring one of them ahead of schedule.
+const GEMINI_MODELS = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -19,25 +22,32 @@ export default async function handler(req, res) {
     return;
   }
 
-  try {
-    const { contents } = req.body || {};
-    if (!contents) {
-      res.status(400).json({ error: "Missing 'contents' in request body." });
-      return;
-    }
-
-    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({ contents }),
-    });
-
-    const data = await geminiRes.json();
-    res.status(geminiRes.status).json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message || "Unknown server error" });
+  const { contents } = req.body || {};
+  if (!contents) {
+    res.status(400).json({ error: "Missing 'contents' in request body." });
+    return;
   }
+
+  let lastError = null;
+  for (const model of GEMINI_MODELS) {
+    try {
+      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({ contents }),
+      });
+      const data = await geminiRes.json();
+      if (geminiRes.ok) {
+        res.status(200).json(data);
+        return;
+      }
+      lastError = data;
+    } catch (err) {
+      lastError = { error: err.message || "Unknown server error" };
+    }
+  }
+  res.status(502).json(lastError || { error: "All Gemini models failed" });
 }
