@@ -6465,7 +6465,7 @@ function convertCycleRecipeToAppRecipe(dbRecipe, phaseKey) {
     if (DIET_CONFLICT_WORDS.dairy.some((w) => lower.includes(w))) dairyFlag = true;
     if (DIET_CONFLICT_WORDS.gluten.some((w) => lower.includes(w))) glutenFlag = true;
     if (/\bei\b|eier/.test(lower)) eggFlag = true;
-    const food = FOOD_DB.find((f) => f.keys.some((k) => lower.includes(k)));
+    const food = FOOD_DB.find((f) => f.keys.some((k) => hasWholeWordMatch(lower, k)));
     if (food) {
       const parsed = parseIngredientString(str);
       const grams = resolveGrams(food, { num: parsed.amount, unit: parsed.unit });
@@ -6702,7 +6702,7 @@ const FOOD_DB = [
   { keys: ["couscous", "bulgur"], kcal: 112, protein: 3.8, carbs: 23, fat: 0.2, defaultG: 180 },
   { keys: ["brot", "brötchen", "toast"], kcal: 265, protein: 9, carbs: 49, fat: 3.2, defaultG: 60, sliceG: 30 },
   { keys: ["hähnchen", "huhn", "hühnchen", "pute", "putenbrust"], kcal: 160, protein: 30, carbs: 0, fat: 4, defaultG: 150 },
-  { keys: ["rind", "rinderhack", "hackfleisch", "hack"], kcal: 230, protein: 20, carbs: 0, fat: 16, defaultG: 150 },
+  { keys: ["rind", "rinderhack", "hackfleisch", "hack", "bolognese"], kcal: 230, protein: 20, carbs: 0, fat: 16, defaultG: 150 },
   { keys: ["lachs", "fisch", "forelle", "kabeljau"], kcal: 150, protein: 21, carbs: 0, fat: 8, defaultG: 150 },
   { keys: ["thunfisch"], kcal: 130, protein: 29, carbs: 0, fat: 1, defaultG: 120 },
   { keys: ["garnele", "garnelen", "shrimp"], kcal: 99, protein: 24, carbs: 0.2, fat: 0.3, defaultG: 120 },
@@ -6748,6 +6748,21 @@ function parseQuantityNear(lower, key) {
   return null;
 }
 
+// Whole-word matching for food keywords: a naive lower.includes("ei") would also match
+// inside "ein", "kein", "mein", "weiß" etc. This checks that the matched substring is
+// bounded by non-letters (or string start/end) on both sides, accounting for umlauts.
+function hasWholeWordMatch(lowerText, key) {
+  const isLetter = (c) => !!c && /[a-zäöüß]/i.test(c);
+  let idx = lowerText.indexOf(key);
+  while (idx !== -1) {
+    const before = idx === 0 ? "" : lowerText[idx - 1];
+    const after = lowerText[idx + key.length] || "";
+    if (!isLetter(before) && !isLetter(after)) return true;
+    idx = lowerText.indexOf(key, idx + 1);
+  }
+  return false;
+}
+
 function resolveGrams(food, qty) {
   if (!qty) return food.defaultG;
   const { num, unit } = qty;
@@ -6782,7 +6797,7 @@ function ingredientsFromRecipe(recipe) {
   const parsed = (recipe.ingredients || []).map((str) => parseIngredientString(str));
   const withMacros = parsed.map((p) => {
     const lowerName = p.name.toLowerCase();
-    const food = FOOD_DB.find((f) => f.keys.some((k) => lowerName.includes(k)));
+    const food = FOOD_DB.find((f) => f.keys.some((k) => hasWholeWordMatch(lowerName, k)));
     if (food) {
       const grams = resolveGrams(food, { num: p.amount, unit: p.unit });
       const scale = grams / 100;
@@ -6838,7 +6853,7 @@ function ingredientsFromDishText(text, totals) {
   const matches = [];
   FOOD_DB.forEach((food) => {
     const hitKey = food.keys.find((k) => {
-      if (!lower.includes(k)) return false;
+      if (!hasWholeWordMatch(lower, k)) return false;
       if (k === "kartoffel" && lower.includes("süßkartoffel")) return false;
       return true;
     });
@@ -6914,7 +6929,7 @@ function estimateMeal(text) {
 
   FOOD_DB.forEach((food) => {
     const hitKey = food.keys.find((k) => {
-      if (!lower.includes(k)) return false;
+      if (!hasWholeWordMatch(lower, k)) return false;
       // avoid "Süßkartoffel" also triggering the separate plain "Kartoffel" entry
       if (k === "kartoffel" && lower.includes("süßkartoffel")) return false;
       return true;
@@ -7254,7 +7269,7 @@ const DEFAULT_ADJUSTMENT = { kcal: 70, protein: 2, carbs: 6, fat: 3 };
 
 function estimateAdjustmentDelta(text) {
   const lower = text.toLowerCase();
-  const found = INGREDIENT_ESTIMATES.find((e) => e.match.some((m) => lower.includes(m)));
+  const found = INGREDIENT_ESTIMATES.find((e) => e.match.some((m) => hasWholeWordMatch(lower, m)));
   return found ? { kcal: found.kcal, protein: found.protein, carbs: found.carbs, fat: found.fat } : DEFAULT_ADJUSTMENT;
 }
 
@@ -7443,7 +7458,7 @@ function generateSinglePantryRecipe(phaseKey, diets, pantryInput, styleObj, seed
   const meatFlag = has("meat");
   const fishFlag = has("fish");
   const dairyFlag = has("dairy") || lowerAll.includes("feta") || lowerAll.includes("käse");
-  const eggFlag = lowerAll.includes("ei") || lowerAll.includes("eier");
+  const eggFlag = hasWholeWordMatch(lowerAll, "ei") || hasWholeWordMatch(lowerAll, "eier");
   const glutenFlag = has("gluten");
 
   const { noGluten } = dietConstraints(diets);
@@ -7664,7 +7679,12 @@ export default function App() {
 // Real AI-powered dish analysis via the Claude API (vision + text). Falls back to the
 // local heuristic estimator (see estimateMeal/phaseMatchScore) if the request fails for
 // any reason - network issue, malformed response, etc. - so the scanner always works.
-async function analyzeWithClaude({ text, imageDataUrl, phase, diets, lang }) {
+// Tries the direct Anthropic endpoint first (this works automatically inside the Claude
+// artifact preview, where Anthropic proxies auth for us). On a standalone deployment
+// (e.g. your own Vercel site) that direct call has no credentials and will fail, so we
+// fall back to our own serverless function at /api/analyze, which holds the API key
+// safely on the server side (see api/analyze.js).
+async function analyzeFoodWithAI({ text, imageDataUrl, phase, diets, lang }) {
   const dietList = diets && diets.length ? diets.map((d) => dietLabel(d, lang)).join(", ") : lang === "en" ? "no restrictions" : "keine Einschränkungen";
   const langInstruction = lang === "en" ? "Respond in English." : "Antworte auf Deutsch.";
   const instructions = `You are a nutrition assistant inside a cycle-based nutrition app.
@@ -7684,22 +7704,29 @@ Respond with ONLY a JSON object, no markdown formatting, no extra text before or
 {"name":"...","kcal":0,"protein":0,"carbs":0,"fat":0,"isJunk":false,"match":0,"reason":"...","dietWarning":null,"ingredients":[{"name":"...","amount":0,"unit":"g","kcal":0,"protein":0,"carbs":0,"fat":0}],"swap":null}
 If isJunk is true, "swap" must be {"name":"...","kcal":0,"protein":0,"carbs":0,"fat":0,"match":0,"why":"..."}, otherwise "swap" must be null.`;
 
-  const content = [];
+  const parts = [{ text: instructions }];
   if (imageDataUrl) {
     const match = imageDataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
-    if (match) content.push({ type: "image", source: { type: "base64", media_type: match[1], data: match[2] } });
+    if (match) parts.unshift({ inlineData: { mimeType: match[1], data: match[2] } });
   }
-  content.push({ type: "text", text: instructions });
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content }] }),
-  });
-  if (!response.ok) throw new Error(`Claude API error ${response.status}`);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  let response;
+  try {
+    response = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ role: "user", parts }] }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+  if (!response.ok) throw new Error(`AI API error ${response.status}`);
   const data = await response.json();
-  const textBlock = (data.content || []).find((b) => b.type === "text");
-  if (!textBlock) throw new Error("No text block in Claude response");
+  const textBlock = data?.candidates?.[0]?.content?.parts?.find((p) => typeof p.text === "string");
+  if (!textBlock) throw new Error("No text block in AI response");
   const cleaned = textBlock.text.replace(/```json|```/g, "").trim();
   const parsed = JSON.parse(cleaned);
   if (typeof parsed.kcal !== "number" || typeof parsed.match !== "number") throw new Error("Unexpected response shape");
@@ -7745,7 +7772,7 @@ function buildMealFromText(rawText, mealType) {
 
     let aiResult = null;
     try {
-      aiResult = await analyzeWithClaude({ text: rawText, imageDataUrl: imagePreview, phase: selectedPhase, diets: profile.diets, lang });
+      aiResult = await analyzeFoodWithAI({ text: rawText, imageDataUrl: imagePreview, phase: selectedPhase, diets: profile.diets, lang });
     } catch (err) {
       console.warn("Claude food analysis failed, using local estimate instead.", err);
     }
@@ -9319,9 +9346,9 @@ function MealCard({ meal, phaseKey, phase, logSwap, onDelete, onEdit, onSaveAsSh
 // for things not in the database (e.g. "extra Sauce").
 function estimateNewIngredientRow(text) {
   const lower = text.toLowerCase();
-  const food = FOOD_DB.find((f) => f.keys.some((k) => lower.includes(k)));
+  const food = FOOD_DB.find((f) => f.keys.some((k) => hasWholeWordMatch(lower, k)));
   if (food) {
-    const hitKey = food.keys.find((k) => lower.includes(k));
+    const hitKey = food.keys.find((k) => hasWholeWordMatch(lower, k));
     const grams = resolveGrams(food, parseQuantityNear(lower, hitKey));
     const scale = grams / 100;
     return {
