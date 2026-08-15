@@ -9,7 +9,7 @@
 // (rather than a generic one) so the exact cause is visible directly in the app's
 // error banner - no need to dig through Vercel's dashboard.
 
-const GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+const GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.5-flash"];
 
 export default async function handler(req, res) {
   // Wrap literally everything - so even an unexpected crash returns a readable
