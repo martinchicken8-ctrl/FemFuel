@@ -1,10 +1,10 @@
-@import url("https://fonts.googleapis.com/css2?family=Fraunces:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700;800&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 body {
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: "Nunito", system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
 }
