@@ -9,7 +9,7 @@
 // (rather than a generic one) so the exact cause is visible directly in the app's
 // error banner - no need to dig through Vercel's dashboard.
 
-const GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.5-flash"];
+const GEMINI_MODELS = ["gemini-flash-latest", "gemini-flash-lite-latest"];
 
 export default async function handler(req, res) {
   // Wrap literally everything - so even an unexpected crash returns a readable
@@ -49,7 +49,9 @@ export default async function handler(req, res) {
     }
 
     const attempts = [];
-    for (const model of GEMINI_MODELS) {
+    const modelsToTry = [...GEMINI_MODELS, GEMINI_MODELS[0]]; // retry the primary once more at the end, in case the 503 was momentary
+    for (let i = 0; i < modelsToTry.length; i++) {
+      const model = modelsToTry[i];
       try {
         const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
           method: "POST",
@@ -65,6 +67,8 @@ export default async function handler(req, res) {
           return;
         }
         attempts.push({ model, status: geminiRes.status, error: data?.error?.message || JSON.stringify(data).slice(0, 200) });
+        // brief pause before the next attempt - "high demand" (503) errors are often gone within a second or two
+        if (i < modelsToTry.length - 1) await new Promise((r) => setTimeout(r, 1200));
       } catch (err) {
         attempts.push({ model, error: `fetch threw: ${err.message}` });
       }
