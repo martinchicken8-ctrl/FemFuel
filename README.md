@@ -43,7 +43,7 @@ git push -u origin main
 1. Lokal bauen:
    ```bash
    npm install
-   npm run build
+   npm run build 
    ```
    Das erzeugt einen `dist/`-Ordner.
 2. Auf [app.netlify.com/drop](https://app.netlify.com/drop) gehen.
