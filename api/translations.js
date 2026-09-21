@@ -1,6 +1,7 @@
-// Vercel Serverless Function - manages a SHARED, server-side cache of German recipe
-// translations, stored in Vercel Blob. This is the key piece that makes translation
-// happen only ONCE, system-wide, rather than separately for every visitor's browser:
+// Vercel Serverless Function - manages a SHARED, server-side cache of English recipe
+// translations (source recipes are German), stored in Vercel Blob. This is the key piece
+// that makes translation happen only ONCE, system-wide, rather than separately for every
+// visitor's browser:
 //
 // - GET  /api/translations  -> returns whatever has been translated so far (fast, free)
 // - POST /api/translations  -> translates the next small batch of untranslated recipes
@@ -13,7 +14,7 @@
 
 import { put, head } from "@vercel/blob";
 
-const BLOB_PATH = "nicinsync-recipe-translations.json";
+const BLOB_PATH = "nicinsync-recipe-translations-en.json";
 const BATCH_SIZE = 3; // small and paced, to respect the free tier's rate limit
 const BATCH_DELAY_MS = 4000; // pause between each translation call within a batch
 const GEMINI_MODELS = ["gemini-flash-latest", "gemini-flash-lite-latest"];
@@ -62,7 +63,7 @@ async function callGemini(apiKey, prompt) {
 }
 
 async function translateOne(apiKey, recipe) {
-  const prompt = `Translate this recipe from English to natural, appetizing German. Respond with ONLY a JSON object, no markdown, in exactly this shape:
+  const prompt = `Translate this recipe from German to natural, appetizing English. Respond with ONLY a JSON object, no markdown, in exactly this shape:
 {"title":"...","ingredients":["...","..."],"steps":["...","..."]}
 
 Title: ${recipe.title}
